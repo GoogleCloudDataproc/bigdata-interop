@@ -36,6 +36,8 @@ import com.google.cloud.hadoop.util.ApiErrorExtractor;
 import com.google.common.collect.ImmutableList;
 import com.google.common.flogger.LoggerConfig;
 import java.io.IOException;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.logging.Level;
 import org.junit.After;
 import org.junit.Before;
@@ -89,6 +91,9 @@ public class BigQueryHelperTest {
 
   // Sample jobId for JobReference for mockBigqueryJobs.
   private String jobId = "bigquery-job-1234";
+
+  // Sample BigQuery labels to be associated with the job.
+  private Map<String,String> labels = new HashMap<>();
 
   // The instance being tested.
   private BigQueryHelper helper;
@@ -144,6 +149,9 @@ public class BigQueryHelperTest {
     tableRef.setDatasetId(datasetId);
     tableRef.setTableId(tableId);
 
+    labels.put("label1", "value1");
+    labels.put("label2", "value2");
+
     helper = new BigQueryHelper(mockBigquery);
     helper.setErrorExtractor(mockErrorExtractor);
   }
@@ -188,6 +196,7 @@ public class BigQueryHelperTest {
         BigQueryConfiguration.OUTPUT_TABLE_CREATE_DISPOSITION.getDefault(),
         BigQueryConfiguration.OUTPUT_TABLE_WRITE_DISPOSITION.getDefault(),
         ImmutableList.of("test-import-path"),
+        labels,
         true);
 
     // Verify correct calls to BigQuery are made.
@@ -232,7 +241,7 @@ public class BigQueryHelperTest {
     when(mockBigqueryJobsGet.execute()).thenReturn(jobHandle);
 
     // Run exportBigQueryToGCS method.
-    helper.exportBigQueryToGcs(jobProjectId, tableRef, ImmutableList.of("test-export-path"), true);
+    helper.exportBigQueryToGcs(jobProjectId, tableRef, ImmutableList.of("test-export-path"), labels, true);
 
     // Verify correct calls to BigQuery are made.
     verify(mockBigquery, times(2)).jobs();
@@ -244,6 +253,7 @@ public class BigQueryHelperTest {
     assertThat(job.getConfiguration().getExtract().getDestinationUris().get(0))
         .isEqualTo("test-export-path");
     assertThat(job.getConfiguration().getExtract().getSourceTable()).isEqualTo(tableRef);
+    assertThat(job.getConfiguration().getLabels()).isEqualTo(labels);
     assertThat(job.getJobReference().getLocation()).isEqualTo("test_location");
 
     // Verify we poll for job in correct location

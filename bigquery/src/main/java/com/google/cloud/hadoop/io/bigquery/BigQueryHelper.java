@@ -36,6 +36,7 @@ import com.google.common.base.Strings;
 import com.google.common.flogger.GoogleLogger;
 import java.io.IOException;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import javax.annotation.Nullable;
 
@@ -129,6 +130,41 @@ public class BigQueryHelper {
    * @throws InterruptedException if interrupted while waiting for job completion.
    */
   public void importFromGcs(
+          String projectId,
+          TableReference tableRef,
+          @Nullable TableSchema schema,
+          @Nullable TimePartitioning timePartitioning,
+          @Nullable String kmsKeyName,
+          BigQueryFileFormat sourceFormat,
+          String createDisposition,
+          String writeDisposition,
+          List<String> gcsPaths,
+          boolean awaitCompletion)
+          throws IOException, InterruptedException {
+    importFromGcs(projectId, tableRef, schema, timePartitioning, kmsKeyName, sourceFormat, createDisposition,
+            writeDisposition, gcsPaths, null, awaitCompletion);
+  }
+
+  /**
+   * Imports data from GCS into BigQuery via a load job. Optionally polls for completion before
+   * returning.
+   *
+   * @param projectId the project on whose behalf to perform the load.
+   * @param tableRef the reference to the destination table.
+   * @param schema the schema of the source data to populate the destination table by.
+   * @param timePartitioning time partitioning to populate the destination table.
+   * @param kmsKeyName the Cloud KMS encryption key used to protect the output table.
+   * @param sourceFormat the file format of the source data.
+   * @param createDisposition the create disposition of the output table.
+   * @param writeDisposition the write disposition of the output table.
+   * @param gcsPaths the location of the source data in GCS.
+   * @param labels the labels to be associated with the load job.
+   * @param awaitCompletion if true, block and poll until job completes, otherwise return as soon as
+   *     the job has been successfully dispatched.
+   * @throws IOException
+   * @throws InterruptedException if interrupted while waiting for job completion.
+   */
+  public void importFromGcs(
       String projectId,
       TableReference tableRef,
       @Nullable TableSchema schema,
@@ -138,6 +174,7 @@ public class BigQueryHelper {
       String createDisposition,
       String writeDisposition,
       List<String> gcsPaths,
+      @Nullable Map<String, String> labels,
       boolean awaitCompletion)
       throws IOException, InterruptedException {
     logger.atInfo().log(
@@ -172,6 +209,7 @@ public class BigQueryHelper {
 
     JobConfiguration config = new JobConfiguration();
     config.setLoad(loadConfig);
+    config.setLabels(labels);
 
     // Get the dataset to determine the location
     Dataset dataset;
@@ -212,11 +250,36 @@ public class BigQueryHelper {
    * @throws InterruptedException on interrupt.
    */
   public void exportBigQueryToGcs(
-      String projectId, TableReference tableRef, List<String> gcsPaths, boolean awaitCompletion)
+          String projectId,
+          TableReference tableRef,
+          List<String> gcsPaths,
+          boolean awaitCompletion)
+          throws IOException, InterruptedException {
+    exportBigQueryToGcs(projectId, tableRef, gcsPaths, null, awaitCompletion);
+  }
+
+  /**
+   * Exports BigQuery results into GCS, polls for completion before returning.
+   *
+   * @param projectId the project on whose behalf to perform the export.
+   * @param tableRef the table to export.
+   * @param gcsPaths the GCS paths to export to.
+   * @param labels the labels to be associated with the export job.
+   * @param awaitCompletion if true, block and poll until job completes, otherwise return as soon as
+   *     the job has been successfully dispatched.
+   * @throws IOException on IO error.
+   * @throws InterruptedException on interrupt.
+   */
+  public void exportBigQueryToGcs(
+      String projectId,
+      TableReference tableRef,
+      List<String> gcsPaths,
+      @Nullable Map<String, String> labels,
+      boolean awaitCompletion)
       throws IOException, InterruptedException {
     logger.atFine().log(
-        "exportBigQueryToGcs(bigquery, '%s', '%s', '%s', '%s')",
-        projectId, BigQueryStrings.toString(tableRef), gcsPaths, awaitCompletion);
+        "exportBigQueryToGcs(bigquery, '%s', '%s', '%s', '%s', '%s')",
+        projectId, BigQueryStrings.toString(tableRef), gcsPaths, labels, awaitCompletion);
     logger.atInfo().log(
         "Exporting table '%s' to %s paths; path[0] is '%s'; awaitCompletion: %s",
         BigQueryStrings.toString(tableRef),
@@ -236,6 +299,7 @@ public class BigQueryHelper {
 
     JobConfiguration config = new JobConfiguration();
     config.setExtract(extractConfig);
+    config.setLabels(labels);
 
     // Get the table to determine the location
     Table table = getTable(tableRef);

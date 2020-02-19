@@ -14,9 +14,11 @@
 package com.google.cloud.hadoop.io.bigquery.output;
 
 import com.google.api.services.bigquery.model.TableReference;
+import com.google.cloud.hadoop.io.bigquery.BigQueryConfiguration;
 import com.google.cloud.hadoop.io.bigquery.BigQueryFileFormat;
 import java.io.IOException;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.apache.hadoop.classification.InterfaceStability;
 import org.apache.hadoop.conf.Configuration;
@@ -68,6 +70,7 @@ public class IndirectBigQueryOutputCommitter extends ForwardingBigQueryFileOutpu
     String kmsKeyName = BigQueryOutputConfiguration.getKmsKeyName(conf);
     BigQueryFileFormat outputFileFormat = BigQueryOutputConfiguration.getFileFormat(conf);
     List<String> sourceUris = getOutputFileURIs();
+    Map<String, String> labels = BigQueryConfiguration.getJobLabels(conf);
 
     try {
       getBigQueryHelper()
@@ -81,6 +84,7 @@ public class IndirectBigQueryOutputCommitter extends ForwardingBigQueryFileOutpu
               createDisposition,
               writeDisposition,
               sourceUris,
+              labels,
               true);
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();

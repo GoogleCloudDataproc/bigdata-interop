@@ -19,6 +19,9 @@ import static org.mockito.Mockito.when;
 
 import com.google.cloud.hadoop.fs.gcs.InMemoryGoogleHadoopFileSystem;
 import java.io.IOException;
+import java.util.HashMap;
+import java.util.Map;
+
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.mapred.JobConf;
 import org.apache.hadoop.mapreduce.JobID;
@@ -63,6 +66,13 @@ public class BigQueryConfigurationTest {
 
   /** Sample gcs temporary path for io. */
   private static final String GCS_TEMP_PATH = "gs://test";
+
+  /** Sample job labels. */
+  private static final Map<String, String> JOB_LABELS = new HashMap<>();
+  static {
+    JOB_LABELS.put("label1", "value1");
+    JOB_LABELS.put("label2", "value2");
+  }
 
   /** The Job Configuration for testing. */
   private static JobConf conf;
@@ -287,5 +297,18 @@ public class BigQueryConfigurationTest {
 
     // Job level projectId remains unaltered by setting input/output projects.
     assertThat(BigQueryConfiguration.PROJECT_ID.get(conf, conf::get)).isEqualTo(JOB_PROJECT_ID);
+  }
+
+  /**
+   * Tests the BigQueryConfiguration setJobLabels and getJobLabels handle the labels correctly.
+   *
+   * @throws IOException on IOError.
+   */
+  @Test
+  public void tesSetLabelsGetLabels() throws IOException {
+    BigQueryConfiguration.setJobLabels(conf, JOB_LABELS);
+
+    assertThat(BigQueryConfiguration.getJobLabels(conf))
+            .isEqualTo(JOB_LABELS);
   }
 }

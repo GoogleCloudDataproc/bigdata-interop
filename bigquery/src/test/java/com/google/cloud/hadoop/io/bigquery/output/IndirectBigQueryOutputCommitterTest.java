@@ -16,6 +16,7 @@ package com.google.cloud.hadoop.io.bigquery.output;
 import static com.google.common.truth.Truth.assertThat;
 import static org.junit.Assert.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
@@ -34,7 +35,10 @@ import com.google.cloud.hadoop.io.bigquery.BigQueryHelper;
 import com.google.cloud.hadoop.util.testing.CredentialConfigurationUtil;
 import com.google.common.collect.ImmutableList;
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.mapreduce.Job;
@@ -103,6 +107,13 @@ public class IndirectBigQueryOutputCommitterTest {
   private static final String TEST_KMS_KEY_NAME =
       "projects/domain:project/locations/us-west1/keyRings/ring-1/cryptoKeys/key-1";
 
+  /** Sample BQ load job labels. */
+  private static final Map<String, String> TEST_JOB_LABELS = new HashMap<>();
+  static {
+    TEST_JOB_LABELS.put("label1", "value1");
+    TEST_JOB_LABELS.put("label2", "value2");
+  }
+
   /** A sample task ID for the mock TaskAttemptContext. */
   private static final TaskAttemptID TEST_TASK_ATTEMPT_ID =
       new TaskAttemptID(new TaskID("sample_task", 100, false, 200), 1);
@@ -160,6 +171,7 @@ public class IndirectBigQueryOutputCommitterTest {
         TEST_FILE_FORMAT,
         TEST_OUTPUT_CLASS);
     BigQueryOutputConfiguration.setKmsKeyName(conf, TEST_KMS_KEY_NAME);
+    BigQueryConfiguration.setJobLabels(conf, TEST_JOB_LABELS);
     conf.set(
         BigQueryConfiguration.OUTPUT_TABLE_PARTITIONING.getKey(),
         TEST_TIME_PARTITIONING.getAsJson());
@@ -222,6 +234,7 @@ public class IndirectBigQueryOutputCommitterTest {
             eq(TEST_CREATE_DISPOSITION),
             eq(TEST_WRITE_DISPOSITION),
             gcsOutputFileCaptor.capture(),
+            eq(TEST_JOB_LABELS),
             eq(true));
 
     // Verify the delegate is being called.
@@ -254,6 +267,7 @@ public class IndirectBigQueryOutputCommitterTest {
             any(String.class),
             any(String.class),
             any(List.class),
+            anyMap(),
             eq(true));
 
     IOException thrown = assertThrows(IOException.class, () -> committer.commitJob(job));
@@ -271,6 +285,7 @@ public class IndirectBigQueryOutputCommitterTest {
             eq(TEST_CREATE_DISPOSITION),
             eq(TEST_WRITE_DISPOSITION),
             any(List.class), // Tested, no need to capture
+            eq(TEST_JOB_LABELS),
             eq(true));
 
     // Verify the delegate is being called.
