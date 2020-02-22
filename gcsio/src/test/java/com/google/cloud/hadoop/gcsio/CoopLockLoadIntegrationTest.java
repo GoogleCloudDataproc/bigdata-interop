@@ -91,7 +91,7 @@ public class CoopLockLoadIntegrationTest {
   }
 
   @Test
-  public void moveDirectory_loadTest() throws Exception {
+  public void loadTest() throws Exception {
     GoogleCloudStorageFileSystemOptions gcsFsOptions =
         newGcsFsOptions().toBuilder()
             .setCloudStorageOptions(gcsOptions.toBuilder().setMaxHttpRequestRetries(0).build())
@@ -102,6 +102,7 @@ public class CoopLockLoadIntegrationTest {
     URI bucketUri = new URI("gs://" + bucketName + "/");
     String dirName = "rename_" + UUID.randomUUID();
     String fileNamePrefix = "file_";
+    String subdirNamePrefix = "subdir_";
     URI srcFileUri = bucketUri.resolve(dirName + "_src");
     URI dstFileUri = bucketUri.resolve(dirName + "_dst");
     URI srcDirUri = bucketUri.resolve(dirName + "_src/");
@@ -113,23 +114,31 @@ public class CoopLockLoadIntegrationTest {
     for (int i = 0; i < iterations; i++) {
       gcsfsIHelper.writeTextFile(
           bucketName, srcDirUri.resolve(fileNamePrefix + i).getPath(), "file_content_" + i);
+      String subDir = subdirNamePrefix + i + "/file";
+      gcsfsIHelper.writeTextFile(
+          bucketName, srcDirUri.resolve(subDir).getPath(), subdirNamePrefix + i + "_file_content");
     }
 
-    ExecutorService moveExecutor = Executors.newFixedThreadPool(iterations * 2);
-    List<Future<?>> futures = new ArrayList<>(iterations * 2);
+    ExecutorService operationExecutor = Executors.newCachedThreadPool();
+    List<Future<?>> futures = new ArrayList<>();
     for (int i = 0; i < iterations; i++) {
       URI srcUri1 = i % 4 == 0 ? srcFileUri : srcDirUri;
       URI dstUri1 = i % 4 == 1 ? dstFileUri : dstDirUri;
-      futures.add(moveExecutor.submit(() -> renameUnchecked(gcsFs, srcUri1, dstUri1)));
+      futures.add(operationExecutor.submit(() -> renameUnchecked(gcsFs, srcUri1, dstUri1)));
 
       URI srcUri2 = i % 4 == 3 ? srcFileUri : srcDirUri;
       URI dstUri2 = i % 4 == 2 ? dstFileUri : dstDirUri;
-      futures.add(moveExecutor.submit(() -> renameUnchecked(gcsFs, dstUri2, srcUri2)));
+      futures.add(operationExecutor.submit(() -> renameUnchecked(gcsFs, dstUri2, srcUri2)));
+
+      URI srcSubDir = srcDirUri.resolve(subdirNamePrefix + i + (i % 2 == 0 ? "" : "/"));
+      futures.add(operationExecutor.submit(() -> deleteUnchecked(gcsFs, srcSubDir)));
     }
-    moveExecutor.shutdown();
-    moveExecutor.awaitTermination(6, TimeUnit.MINUTES);
+    operationExecutor.shutdown();
+    while (!operationExecutor.isTerminated()) {
+      operationExecutor.awaitTermination(10, TimeUnit.MINUTES);
+    }
     assertWithMessage("Cooperative locking load test timed out")
-        .that(moveExecutor.isTerminated())
+        .that(operationExecutor.isTerminated())
         .isTrue();
 
     for (Future<?> f : futures) {
@@ -138,9 +147,11 @@ public class CoopLockLoadIntegrationTest {
 
     assertThat(gcsFs.exists(srcDirUri)).isTrue();
     assertThat(gcsFs.exists(dstDirUri)).isFalse();
-    assertThat(gcsFs.listFileInfo(srcDirUri)).hasSize(iterations);
+    FileInfo srcInfo = gcsFs.getFileInfo(srcDirUri);
+    assertThat(gcsFs.listFileNames(srcInfo, /* recursive=*/ true)).hasSize(iterations);
     for (int i = 0; i < iterations; i++) {
       assertThat(gcsFs.exists(srcDirUri.resolve(fileNamePrefix + i))).isTrue();
+      assertThat(gcsFs.exists(srcDirUri.resolve(subdirNamePrefix + i))).isFalse();
     }
 
     // Validate lock files
@@ -149,7 +160,7 @@ public class CoopLockLoadIntegrationTest {
             .map(FileInfo::getPath)
             .collect(toList());
 
-    assertThat(lockFiles).hasSize(iterations * 4);
+    assertThat(lockFiles).hasSize(iterations * 6);
   }
 
   private static void renameUnchecked(GoogleCloudStorageFileSystem gcsFs, URI src, URI dst) {
@@ -163,6 +174,19 @@ public class CoopLockLoadIntegrationTest {
         assertThat(e)
             .hasMessageThat()
             .matches("^Cannot rename because path does not exist: " + src + "/?$");
+      }
+    } while (true);
+  }
+
+  private static void deleteUnchecked(GoogleCloudStorageFileSystem gcsFs, URI dir) {
+    do {
+      try {
+        gcsFs.delete(dir, /* recursive= */ true);
+        break;
+      } catch (FileNotFoundException e) {
+        assertThat(e).hasMessageThat().matches("Item not found: " + dir + "/?$");
+      } catch (IOException e) {
+        throw new RuntimeException("Delete operation failed: " + dir, e);
       }
     } while (true);
   }

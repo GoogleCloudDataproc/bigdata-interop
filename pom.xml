@@ -205,7 +205,7 @@
                 <include>**/*IntegrationTest.java</include>
               </includes>
               <reuseForks>false</reuseForks>
-              <forkCount>2</forkCount>
+              <forkCount>3</forkCount>
             </configuration>
           </plugin>
         </plugins>
