@@ -626,11 +626,6 @@ public class GoogleCloudStorageImpl implements GoogleCloudStorage {
     Preconditions.checkArgument(
         resourceId.isStorageObject(), "Expected full StorageObject id, got %s", resourceId);
 
-    if (storageOptions.isGrpcEnabled()) {
-      return GoogleCloudStorageGrpcReadChannel.open(
-          storageStubProvider.getBlockingStub(), resourceId, readOptions);
-    }
-
     // The underlying channel doesn't initially read data, which means that we won't see a
     // FileNotFoundException until read is called. As a result, in order to find out if the object
     // exists, we'll need to do an RPC (metadata or data). A metadata check should be a less
@@ -646,20 +641,23 @@ public class GoogleCloudStorageImpl implements GoogleCloudStorage {
       info = null;
     }
 
-    return new GoogleCloudStorageReadChannel(
-        storage, resourceId, errorExtractor, clientRequestHelper, readOptions) {
+    return storageOptions.isGrpcEnabled()
+        ? GoogleCloudStorageGrpcReadChannel.open(
+            storageStubProvider.getBlockingStub(), resourceId, readOptions)
+        : new GoogleCloudStorageReadChannel(
+            storage, resourceId, errorExtractor, clientRequestHelper, readOptions) {
 
-      @Override
-      @Nullable
-      protected GoogleCloudStorageItemInfo getInitialMetadata() {
-        return info;
-      }
+          @Override
+          @Nullable
+          protected GoogleCloudStorageItemInfo getInitialMetadata() {
+            return info;
+          }
 
-      @Override
-      protected Storage.Objects.Get createRequest() throws IOException {
-        return initializeRequest(super.createRequest(), resourceId.getBucketName());
-      }
-    };
+          @Override
+          protected Storage.Objects.Get createRequest() throws IOException {
+            return initializeRequest(super.createRequest(), resourceId.getBucketName());
+          }
+        };
   }
 
   /** See {@link GoogleCloudStorage#deleteBuckets(List)} for details about expected behavior. */
