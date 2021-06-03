@@ -29,13 +29,16 @@ import com.google.common.hash.Hashing;
 import com.google.google.storage.v1.GetObjectMediaRequest;
 import com.google.google.storage.v1.GetObjectMediaResponse;
 import com.google.google.storage.v1.GetObjectRequest;
+import com.google.google.storage.v1.StorageGrpc;
 import com.google.google.storage.v1.StorageGrpc.StorageBlockingStub;
 import com.google.protobuf.ByteString;
 import io.grpc.Context;
 import io.grpc.Context.CancellableContext;
+import io.grpc.MethodDescriptor;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import java.io.EOFException;
+import java.io.InputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.ClosedChannelException;
@@ -46,6 +49,16 @@ import javax.annotation.Nullable;
 public class GoogleCloudStorageGrpcReadChannel implements SeekableByteChannel {
 
   private static final GoogleLogger logger = GoogleLogger.forEnclosingClass();
+
+  // ZeroCopy version of GetObjectMedia Method
+  private static final ZeroCopyMessageMarshaller getObjectMediaResponseMarshaller =
+    new ZeroCopyMessageMarshaller(GetObjectMediaResponse.getDefaultInstance());
+  private static final MethodDescriptor<GetObjectMediaRequest, GetObjectMediaResponse> getObjectMediaMethod =
+    StorageGrpc.getGetObjectMediaMethod()
+      .toBuilder()
+      .setResponseMarshaller(getObjectMediaResponseMarshaller)
+      .build();
+  private static final boolean useZeroCopyMarshaller = ZeroCopyReadinessChecker.isReady();
 
   private volatile StorageBlockingStub stub;
 
@@ -75,6 +88,9 @@ public class GoogleCloudStorageGrpcReadChannel implements SeekableByteChannel {
   @Nullable private ByteString bufferedContent = null;
 
   private int bufferedContentReadOffset = 0;
+
+  // InputStream that backs bufferedContent. This needs to be closed when bufferedContent is no longer needed.
+  @Nullable private InputStream streamForBufferedContent = null;
 
   // The streaming read operation. If null, there is not an in-flight read in progress.
   @Nullable private Iterator<GetObjectMediaResponse> resIterator = null;
@@ -214,8 +230,7 @@ public class GoogleCloudStorageGrpcReadChannel implements SeekableByteChannel {
     if (remainingBufferedContentLargerThanByteBuffer) {
       bufferedContentReadOffset += bytesToWrite;
     } else {
-      bufferedContent = null;
-      bufferedContentReadOffset = 0;
+      invalidateBufferedContent();
     }
 
     return bytesToWrite;
@@ -254,7 +269,10 @@ public class GoogleCloudStorageGrpcReadChannel implements SeekableByteChannel {
     }
     while (moreServerContent() && byteBuffer.hasRemaining()) {
       GetObjectMediaResponse res = resIterator.next();
-
+      // When zero-copy mashaller is used, the stream that backs GetObjectMediaResponse
+      // should be closed when the mssage is no longed needed so that all buffers in the
+      // stream can be reclaimed. If zero-copy is not used, stream will be null.
+      InputStream stream = getObjectMediaResponseMarshaller.popStream(res);
       ByteString content = res.getChecksummedData().getContent();
       if (bytesToSkipBeforeReading >= 0 && bytesToSkipBeforeReading < content.size()) {
         content = res.getChecksummedData().getContent().substring((int) bytesToSkipBeforeReading);
@@ -263,6 +281,9 @@ public class GoogleCloudStorageGrpcReadChannel implements SeekableByteChannel {
       } else if (bytesToSkipBeforeReading >= content.size()) {
         position += content.size();
         bytesToSkipBeforeReading -= content.size();
+        if (stream != null) {
+          stream.close();
+        }
         continue;
       }
 
@@ -272,6 +293,9 @@ public class GoogleCloudStorageGrpcReadChannel implements SeekableByteChannel {
             Hashing.crc32c().hashBytes(res.getChecksummedData().getContent().toByteArray()).asInt();
         int expectedChecksum = res.getChecksummedData().getCrc32C().getValue();
         if (calculatedChecksum != expectedChecksum) {
+          if (stream != null) {
+            stream.close();
+          }
           throw new IOException(
               String.format(
                   "Message checksum (%s) didn't match expected checksum (%s) for '%s'",
@@ -287,8 +311,14 @@ public class GoogleCloudStorageGrpcReadChannel implements SeekableByteChannel {
       position += bytesToWrite;
 
       if (responseSizeLargerThanRemainingBuffer) {
+        invalidateBufferedContent();
         bufferedContent = content;
         bufferedContentReadOffset = bytesToWrite;
+        streamForBufferedContent = stream;
+      } else {
+        if (stream != null) {
+          stream.close();
+        }
       }
     }
     return bytesRead;
@@ -311,10 +341,14 @@ public class GoogleCloudStorageGrpcReadChannel implements SeekableByteChannel {
             try {
               requestContext = Context.current().withCancellation();
               Context toReattach = requestContext.attach();
+              StorageBlockingStub blockingStub = stub.withDeadlineAfter(readOptions.getGrpcReadTimeoutMillis(), MILLISECONDS);
               try {
-                resIterator =
-                    stub.withDeadlineAfter(readOptions.getGrpcReadTimeoutMillis(), MILLISECONDS)
-                        .getObjectMedia(request);
+                if (useZeroCopyMarshaller) {
+                  resIterator = io.grpc.stub.ClientCalls.blockingServerStreamingCall(
+                    blockingStub.getChannel(), getObjectMediaMethod, blockingStub.getCallOptions(), request);
+                } else {
+                  resIterator = blockingStub.getObjectMedia(request);
+                }
               } finally {
                 requestContext.detach(toReattach);
               }
@@ -428,9 +462,7 @@ public class GoogleCloudStorageGrpcReadChannel implements SeekableByteChannel {
 
     // Reset any ongoing read operations or local data caches.
     cancelCurrentRequest();
-    bufferedContent = null;
-    bufferedContentReadOffset = 0;
-    bytesToSkipBeforeReading = 0;
+    invalidateBufferedContent();
 
     position = newPosition;
     return this;
@@ -457,6 +489,7 @@ public class GoogleCloudStorageGrpcReadChannel implements SeekableByteChannel {
   @Override
   public void close() {
     cancelCurrentRequest();
+    invalidateBufferedContent();
     channelIsOpen = false;
   }
 
@@ -466,5 +499,18 @@ public class GoogleCloudStorageGrpcReadChannel implements SeekableByteChannel {
         .add("resourceId", resourceId)
         .add("generation", objectGeneration)
         .toString();
+  }
+
+  private void invalidateBufferedContent() {
+    bufferedContent = null;
+    bufferedContentReadOffset = 0;
+    if (streamForBufferedContent != null) {
+      try {
+        streamForBufferedContent.close();
+        streamForBufferedContent = null;
+      } catch (IOException e) {
+        throw new RuntimeException(e);
+      }
+    }
   }
 }
