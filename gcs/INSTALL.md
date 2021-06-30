@@ -11,7 +11,12 @@ must do one of the following:
     [configured to have access](https://cloud.google.com/compute/docs/authentication#using)
     to the
     [Cloud Storage scope](https://cloud.google.com/storage/docs/authentication#oauth)
-    you intend to use the connector for.
+    you intend to use the connector for. When running inside of Google Compute Engine VMs,
+    including Dataproc clusters, `google.cloud.auth.service.account.enable` is set to false
+    by default, which means you don't need to manually configure a service account for the
+    connector; it will automatically get the service account credential from the metadata
+    server of the VM. But you must need to make sure the VM service account has
+    permission to access the GCS bucket.
 *   **non-Google Cloud Platform** - Obtain an
     [OAuth 2.0 private key](https://cloud.google.com/storage/docs/authentication#generating-a-private-key).
     Installing the connector on a machine other than a GCE VM can lead to higher
