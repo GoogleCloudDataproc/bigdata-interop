@@ -108,6 +108,7 @@
     <junit.version>4.13.2</junit.version>
     <mockito.version>3.11.2</mockito.version>
     <system-lambda.version>1.2.0</system-lambda.version>
+    <assertj.version>3.12.2</assertj.version>
   </properties>
 
   <modules>
@@ -279,6 +280,53 @@
           </plugin>
         </plugins>
       </build>
+    </profile>
+
+    <!--
+     This is a profile to enable the use of the ASF snapshot and staging repositories
+     during a build. It is useful when testing against nightly or RC releases of dependencies.
+     -->
+    <profile>
+      <id>snapshots-and-staging</id>
+      <properties>
+        <!-- override point for ASF staging/snapshot repos -->
+        <asf.staging>https://repository.apache.org/content/groups/staging/</asf.staging>
+        <asf.snapshots>https://repository.apache.org/content/repositories/snapshots/</asf.snapshots>
+      </properties>
+
+      <pluginRepositories>
+        <pluginRepository>
+          <id>ASF Staging</id>
+          <url>${asf.staging}</url>
+        </pluginRepository>
+        <pluginRepository>
+          <id>ASF Snapshots</id>
+          <url>${asf.snapshots}</url>
+          <snapshots>
+            <enabled>true</enabled>
+          </snapshots>
+          <releases>
+            <enabled>false</enabled>
+          </releases>
+        </pluginRepository>
+
+      </pluginRepositories>
+      <repositories>
+        <repository>
+          <id>ASF Staging</id>
+          <url>${asf.staging}</url>
+        </repository>
+        <repository>
+          <id>ASF Snapshots</id>
+          <url>${asf.snapshots}</url>
+          <snapshots>
+            <enabled>true</enabled>
+          </snapshots>
+          <releases>
+            <enabled>false</enabled>
+          </releases>
+        </repository>
+      </repositories>
     </profile>
   </profiles>
 
@@ -487,6 +535,12 @@
         <groupId>com.github.stefanbirkner</groupId>
         <artifactId>system-lambda</artifactId>
         <version>${system-lambda.version}</version>
+        <scope>test</scope>
+      </dependency>
+      <dependency>
+        <groupId>org.assertj</groupId>
+        <artifactId>assertj-core</artifactId>
+        <version>${assertj.version}</version>
         <scope>test</scope>
       </dependency>
     </dependencies>
