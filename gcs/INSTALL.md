@@ -95,6 +95,28 @@ spark.hadoop.google.cloud.auth.service.account.enable       true
 spark.hadoop.google.cloud.auth.service.account.json.keyfile <path/to/keyfile.json>
 ```
 
+### Spark configured with Hadoop and the GCS connector
+
+While Spark doesn't need Hadoop configured to work, if you're running on a Hadoop cluster you may encounter an exception, `No FileSystem for scheme: gs`.
+Spark relies on the raw `FileSystem` impls to load the GCS-compatible `FileSystem`, so this setting is needed to be set:
+```
+<property>
+  <name>fs.gs.impl</name>
+  <value>com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem</value>
+</property>
+```
+
+Alternatively, you can hot-wire this in `spark-submit`/`spark-shell`/etc. using:
+```
+spark-submit \
+  --conf spark.hadoop.fs.gs.impl=com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem \
+  # if they're not in core-site.xml/hdfs-site.xml, hot-wire any other of the above config options
+  # --conf spark.hadoop.<property>=<value> \
+  # if the gcs connector isn't on the driver/executor classpath by default
+  --jars gcs-connector-hadoop2-latest.jar
+  ...
+```
+
 ## Test the installation
 
 On the command line, type `hadoop fs -ls gs://<some-bucket>`, where
