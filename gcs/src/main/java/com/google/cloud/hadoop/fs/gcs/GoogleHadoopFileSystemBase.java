@@ -95,6 +95,7 @@ import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -114,8 +115,10 @@ import org.apache.hadoop.fs.FileChecksum;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.GlobPattern;
+import org.apache.hadoop.fs.LocatedFileStatus;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.PathFilter;
+import org.apache.hadoop.fs.RemoteIterator;
 import org.apache.hadoop.fs.XAttrSetFlag;
 import org.apache.hadoop.fs.permission.FsPermission;
 import org.apache.hadoop.io.Text;
@@ -873,6 +876,59 @@ public abstract class GoogleHadoopFileSystemBase extends FileSystem
               .initCause(fnfe);
     }
     return status.toArray(new FileStatus[0]);
+  }
+
+  class GCSFilesListIterator implements RemoteIterator<LocatedFileStatus> {
+    private String nextPageToken;
+    private boolean recursive;
+    private Path hadoopPath;
+    private Iterator<FileInfo> currentPageIterator;
+
+    public GCSFilesListIterator(Path hadoopPath, boolean recursive) throws IOException {
+      this.hadoopPath = hadoopPath;
+      this.nextPageToken = null;
+      this.recursive = recursive;
+      //load first page with token null.
+      loadNextBatch();
+    }
+
+    @Override
+    public boolean hasNext() throws IOException {
+      if (currentPageIterator == null) return false;
+      if (!currentPageIterator.hasNext() && nextPageToken != null) {
+        loadNextBatch();
+      }
+      return currentPageIterator.hasNext();
+    }
+
+    /**
+     * Load next batch with pageToken, in case of token null. it will always return first page
+     *
+     * @throws IOException
+     */
+    private void loadNextBatch() throws IOException {
+      ListPage<FileInfo> currentBatch = getGcsFs().listFileInfoForPrefixPage(getGcsPath(hadoopPath), this.nextPageToken, recursive);
+      if (currentBatch != null && currentBatch.getItems() != null && currentBatch.getItems().size() != 0) {
+        this.nextPageToken = currentBatch.getNextPageToken();
+        this.currentPageIterator = currentBatch.getItems().iterator();
+      }
+    }
+
+    @Override
+    public LocatedFileStatus next() throws IOException {
+      checkArgument(hasNext(), "No next found");
+      String userName = getUgiUserName();
+      FileStatus currentFile = getFileStatus(currentPageIterator.next(), userName);
+      return new LocatedFileStatus(currentFile, null);
+    }
+  }
+
+  @Override
+  public RemoteIterator<LocatedFileStatus> listFiles(Path hadoopPath, boolean recursive) throws IOException {
+    checkArgument(hadoopPath != null, "hadoopPath must not be null");
+    checkOpen();
+    logger.atFiner().log("listFiles(hadoopPath: %s)", hadoopPath);
+    return new GCSFilesListIterator(hadoopPath, recursive);
   }
 
   /**

@@ -931,19 +931,50 @@ public class GoogleCloudStorageFileSystem {
    * @param pageToken the page token to list
    */
   public ListPage<FileInfo> listFileInfoForPrefixPage(
-      URI prefix, ListFileOptions listOptions, String pageToken) throws IOException {
+          URI prefix, ListFileOptions listOptions, String pageToken) throws IOException {
     logger.atFiner().log(
-        "listAllFileInfoForPrefixPage(prefix: %s, pageToken:%s)", prefix, pageToken);
+            "listAllFileInfoForPrefixPage(prefix: %s, pageToken:%s)", prefix, pageToken);
+    return listFileInfoForPrefixPage(prefix, listOptions, pageToken, true);
+  }
+
+  /**
+   * Equivalent to {@link #listFileInfoForPrefixPage} but returns {@link FileInfo}s listed by single
+   * request (1 page).
+   *
+   * @param prefix    the prefix to use to list all matching objects.
+   * @param pageToken the page token to list
+   * @param recursive the flag to scan recursively
+   */
+  public ListPage<FileInfo> listFileInfoForPrefixPage(
+          URI prefix, String pageToken, boolean recursive) throws IOException {
+    logger.atFiner().log(
+            "listAllFileInfoForPrefixPage(prefix: %s, pageToken:%s)", prefix, pageToken);
+    return listFileInfoForPrefixPage(prefix, ListFileOptions.DEFAULT, pageToken, recursive);
+  }
+
+  /**
+   * Equivalent to {@link #listFileInfoForPrefixPage} but returns {@link FileInfo}s listed by single
+   * request (1 page).
+   *
+   * @param prefix    the prefix to use to list all matching objects.
+   * @param pageToken the page token to list
+   * @param recursive the options to do recursive scan
+   */
+  public ListPage<FileInfo> listFileInfoForPrefixPage(
+          URI prefix, ListFileOptions listOptions, String pageToken, boolean recursive) throws IOException {
+    logger.atFiner().log(
+            "listFileInfoForPrefixPage(prefix: %s, pageToken:%s, recursive:%s)", prefix, pageToken, recursive);
     StorageResourceId prefixId = getPrefixId(prefix);
-    ListPage<GoogleCloudStorageItemInfo> itemInfosPage =
-        gcs.listObjectInfoPage(
-            prefixId.getBucketName(),
-            prefixId.getObjectName(),
-            updateListObjectOptions(ListObjectOptions.DEFAULT_FLAT_LIST, listOptions),
-            pageToken);
-    List<FileInfo> fileInfosPage = FileInfo.fromItemInfos(itemInfosPage.getItems());
-    fileInfosPage.sort(FILE_INFO_PATH_COMPARATOR);
-    return new ListPage<>(fileInfosPage, itemInfosPage.getNextPageToken());
+    ListObjectOptions listObjectOptions = recursive ? ListObjectOptions.DEFAULT_FLAT_LIST.toBuilder().build() : ListObjectOptions.DEFAULT.toBuilder().build();
+    ListPage<GoogleCloudStorageItemInfo> itemsInfoPage =
+            gcs.listObjectInfoPage(
+                    prefixId.getBucketName(),
+                    prefixId.getObjectName(),
+                    updateListObjectOptions(listObjectOptions, listOptions),
+                    pageToken);
+    List<FileInfo> filesInfoPage = FileInfo.fromItemInfos(itemsInfoPage.getItems());
+    filesInfoPage.sort(FILE_INFO_PATH_COMPARATOR);
+    return new ListPage<>(filesInfoPage, itemsInfoPage.getNextPageToken());
   }
 
   private StorageResourceId getPrefixId(URI prefix) {

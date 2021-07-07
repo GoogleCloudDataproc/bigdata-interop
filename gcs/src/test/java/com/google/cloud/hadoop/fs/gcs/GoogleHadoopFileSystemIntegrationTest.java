@@ -54,7 +54,9 @@ import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileChecksum;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.LocatedFileStatus;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.fs.RemoteIterator;
 import org.apache.hadoop.fs.permission.FsPermission;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hadoop.service.Service;
@@ -329,7 +331,15 @@ public class GoogleHadoopFileSystemIntegrationTest extends GoogleHadoopFileSyste
   public void listStatus_throwsExceptionWhenHadoopPathNull() throws IOException {
     GoogleHadoopFileSystem myGhfs = createInMemoryGoogleHadoopFileSystem();
     IllegalArgumentException exception =
-        assertThrows(IllegalArgumentException.class, () -> myGhfs.listStatus((Path) null));
+            assertThrows(IllegalArgumentException.class, () -> myGhfs.listStatus((Path) null));
+    assertThat(exception).hasMessageThat().startsWith("hadoopPath must not be null");
+  }
+
+  @Test
+  public void listFiles_throwsExceptionWhenHadoopPathNull() throws IOException {
+    GoogleHadoopFileSystem myGhfs = createInMemoryGoogleHadoopFileSystem();
+    IllegalArgumentException exception =
+            assertThrows(IllegalArgumentException.class, () -> myGhfs.listFiles((Path) null, true));
     assertThat(exception).hasMessageThat().startsWith("hadoopPath must not be null");
   }
 
@@ -337,7 +347,7 @@ public class GoogleHadoopFileSystemIntegrationTest extends GoogleHadoopFileSyste
   public void setWorkingDirectory_throwsExceptionWhenHadoopPathNull() throws IOException {
     GoogleHadoopFileSystem myGhfs = createInMemoryGoogleHadoopFileSystem();
     IllegalArgumentException exception =
-        assertThrows(IllegalArgumentException.class, () -> myGhfs.setWorkingDirectory(null));
+            assertThrows(IllegalArgumentException.class, () -> myGhfs.setWorkingDirectory(null));
     assertThat(exception).hasMessageThat().startsWith("hadoopPath must not be null");
   }
 
@@ -1037,23 +1047,31 @@ public class GoogleHadoopFileSystemIntegrationTest extends GoogleHadoopFileSyste
     assertThrows(
         "src must not be null", IllegalArgumentException.class, () -> ghfs.rename(null, path));
     assertThrows(
-        "dst must not be null", IllegalArgumentException.class, () -> ghfs.rename(path, null));
+            "dst must not be null", IllegalArgumentException.class, () -> ghfs.rename(path, null));
   }
 
   @Test
   public void testListStatusNull() {
     assertThrows(
-        "hadoopPath must not be null",
-        IllegalArgumentException.class,
-        () -> ghfs.listStatus((Path) null));
+            "hadoopPath must not be null",
+            IllegalArgumentException.class,
+            () -> ghfs.listStatus((Path) null));
+  }
+
+  @Test
+  public void testListFilesNull() {
+    assertThrows(
+            "hadoopPath must not be null",
+            IllegalArgumentException.class,
+            () -> ghfs.listFiles((Path) null, true));
   }
 
   @Test
   public void testSetWorkingDirectoryNull() {
     assertThrows(
-        "hadoopPath must not be null",
-        IllegalArgumentException.class,
-        () -> ghfs.setWorkingDirectory(null));
+            "hadoopPath must not be null",
+            IllegalArgumentException.class,
+            () -> ghfs.setWorkingDirectory(null));
   }
 
   @Test
@@ -1191,5 +1209,47 @@ public class GoogleHadoopFileSystemIntegrationTest extends GoogleHadoopFileSyste
     FileStatus[] fileStatuses = fs.listStatus(new Path(publicBucket));
 
     assertThat(fileStatuses).isNotEmpty();
+  }
+
+  @Test
+  public void listFilesRecursively() throws Exception {
+    String publicBucket = "gs://gcp-public-data-landsat/LC08/01/002/002";
+
+    Configuration config = new Configuration();
+    config.setBoolean("fs.gs.auth.service.account.enable", false);
+    config.setBoolean("fs.gs.auth.null.enable", true);
+
+    FileSystem fs = FileSystem.get(new URI(publicBucket), config);
+
+    RemoteIterator<LocatedFileStatus> iterator = fs.listFiles(new Path(publicBucket), true);
+    boolean isNotChildPath = false;
+    while (iterator.hasNext()) {
+      Path path = iterator.next().getPath();
+      if (!path.toString().contains(publicBucket) && !path.getParent().toString().equals(publicBucket)) {
+        isNotChildPath = true;
+      }
+    }
+    assertThat(isNotChildPath).isFalse();
+  }
+
+  @Test
+  public void listFilesNonRecursively() throws Exception {
+    String publicBucket = "gs://gcp-public-data-landsat";
+
+    Configuration config = new Configuration();
+    config.setBoolean("fs.gs.auth.service.account.enable", false);
+    config.setBoolean("fs.gs.auth.null.enable", true);
+
+    FileSystem fs = FileSystem.get(new URI(publicBucket), config);
+
+    RemoteIterator<LocatedFileStatus> iterator = fs.listFiles(new Path(publicBucket), false);
+    boolean isPathNotInDir = false;
+    while (iterator.hasNext()) {
+      Path path = iterator.next().getPath();
+      if (path.toString().indexOf("/", publicBucket.length() + 1) != -1) {
+        isPathNotInDir = true;
+      }
+    }
+    assertThat(isPathNotInDir).isFalse();
   }
 }
