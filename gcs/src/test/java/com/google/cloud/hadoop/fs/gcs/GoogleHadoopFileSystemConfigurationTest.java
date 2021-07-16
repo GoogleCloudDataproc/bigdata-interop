@@ -61,8 +61,10 @@ public class GoogleHadoopFileSystemConfigurationTest {
   private static final Map<String, Object> expectedDefaultConfiguration =
       new HashMap<String, Object>() {
         {
+          put("fs.gs.enable.http.retry.initializer", true);
           put("fs.gs.application.name.suffix", "");
           put("fs.gs.authorization.handler.impl", null);
+          put("fs.gs.should.authenticate.per.request", false);
           put("fs.gs.authorization.handler.properties.", ImmutableMap.of());
           put("fs.gs.batch.threads", 15);
           put("fs.gs.block.size", 64 * 1024 * 1024L);

@@ -14,6 +14,7 @@
 
 package com.google.cloud.hadoop.util;
 
+import com.google.api.services.storage.StorageRequest;
 import java.io.IOException;
 import org.apache.hadoop.conf.Configurable;
 
@@ -46,9 +47,27 @@ public interface AccessTokenProvider extends Configurable {
   AccessToken getAccessToken();
 
   /**
+   * @param storageRequest a storage request holding the context.
+   * @return an access token.
+   */
+  default<RequestT extends StorageRequest<?>> AccessToken getAccessToken(RequestT storageRequest) {
+    return this.getAccessToken();
+  }
+
+  /**
    * Force this provider to refresh its access token.
    *
    * @throws IOException when refresh fails.
    */
   void refresh() throws IOException;
+
+  /**
+   * Force this provider to refresh its access token.
+   *
+   * @param storageRequest a storage request holding the context.
+   * @throws IOException when refresh fails.
+   */
+  default<RequestT extends StorageRequest<?>>void refresh(RequestT storageRequest) throws IOException {
+    this.refresh();
+  }
 }

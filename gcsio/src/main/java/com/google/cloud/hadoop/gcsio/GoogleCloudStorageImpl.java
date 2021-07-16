@@ -56,6 +56,8 @@ import com.google.api.services.storage.model.RewriteResponse;
 import com.google.api.services.storage.model.StorageObject;
 import com.google.auth.Credentials;
 import com.google.cloud.hadoop.gcsio.authorization.StorageRequestAuthorizer;
+import com.google.cloud.hadoop.util.AccessTokenProvider;
+import com.google.cloud.hadoop.util.AccessTokenProvider.AccessToken;
 import com.google.cloud.hadoop.util.ApiErrorExtractor;
 import com.google.cloud.hadoop.util.BaseAbstractGoogleAsyncWriteChannel;
 import com.google.cloud.hadoop.util.ClientRequestHelper;
@@ -234,6 +236,12 @@ public class GoogleCloudStorageImpl implements GoogleCloudStorage {
   // Authorization Handler instance.
   private final StorageRequestAuthorizer storageRequestAuthorizer;
 
+  // Access Token Provider for per request access tokens.
+  private final AccessTokenProvider accessTokenProvider;
+
+  // Whether to obtain a new access token perequest
+  private final boolean shouldAuthenticationPerRequest;
+
   /**
    * Constructs an instance of GoogleCloudStorageImpl.
    *
@@ -293,7 +301,18 @@ public class GoogleCloudStorageImpl implements GoogleCloudStorage {
       }
     }
 
-    this.storageRequestAuthorizer = initializeStorageRequestAuthorizer(storageOptions);
+    this.storageRequestAuthorizer = initializeStorageRequestAuthorizer(this.storageOptions);
+    this.shouldAuthenticationPerRequest = this.storageOptions.getShouldAuthenticatePerRequest();
+
+    if (this.storageOptions.getAccessTokenProvider() != null) {
+      try {
+        this.accessTokenProvider = this.storageOptions.getAccessTokenProvider().getDeclaredConstructor().newInstance();
+      } catch (ReflectiveOperationException e) {
+        throw new RuntimeException("Can not instantiate access token provider.", e);
+      }
+    } else {
+      this.accessTokenProvider = null;
+    }
   }
 
   private static Storage createStorage(
@@ -2098,7 +2117,10 @@ public class GoogleCloudStorageImpl implements GoogleCloudStorage {
 
   <RequestT extends StorageRequest<?>> RequestT initializeRequest(
       RequestT request, String bucketName) throws IOException {
-    if (storageRequestAuthorizer != null) {
+    if (shouldAuthenticationPerRequest && this.accessTokenProvider != null) {
+      AccessToken accessToken = this.accessTokenProvider.getAccessToken(request);
+      request.setOauthToken(accessToken.getToken());
+    } else if (storageRequestAuthorizer != null) {
       storageRequestAuthorizer.authorize(request);
     }
     return configureRequest(request, bucketName);
