@@ -2115,6 +2115,7 @@ public class GoogleCloudStorageImpl implements GoogleCloudStorage {
     return compositeInfo;
   }
 
+  @VisibleForTesting
   <RequestT extends StorageRequest<?>> RequestT initializeRequest(
       RequestT request, String bucketName) throws IOException {
     if (shouldAuthenticationPerRequest && this.accessTokenProvider != null) {

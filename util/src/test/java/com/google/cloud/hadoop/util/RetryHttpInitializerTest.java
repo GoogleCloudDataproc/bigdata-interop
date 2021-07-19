@@ -21,6 +21,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
@@ -101,6 +102,37 @@ public class RetryHttpInitializerTest {
   @Test
   public void testConstructorNullCredential() {
     new RetryHttpInitializer(/* credential= */ null, "foo-user-agent");
+  }
+
+  @Test
+  public void testInitializeWithInitializerDisabled() throws IOException {
+    MockHttpTransport fakeTransport =
+        new MockHttpTransport() {
+          // Only override the method for retrieving a LowLevelHttpRequest.
+          @Override
+          public LowLevelHttpRequest buildRequest(String method, String url) {
+            // TODO(user): Also record and test the number of calls to this and the method/url.
+            return mockLowLevelRequest;
+          }
+        };
+    RetryHttpInitializer initializer =
+        new RetryHttpInitializer(
+            mockCredential,
+            RetryHttpInitializerOptions.builder()
+                .setIsEnabled(false)
+                .build());
+    initializer.setSleeperOverride(mockSleeper);
+    requestFactory = fakeTransport.createRequestFactory(initializer);
+
+    when(mockLowLevelRequest.execute())
+        .thenReturn(mockLowLevelResponse);
+    when(mockLowLevelResponse.getStatusCode())
+        .thenReturn(200);
+
+    final HttpRequest req = requestFactory.buildGetRequest(new GenericUrl("http://fake-url.com"));
+    req.execute();
+
+    verifyNoInteractions(mockCredential);
   }
 
   @Test
