@@ -23,6 +23,7 @@ import javax.annotation.Nullable;
 @AutoValue
 public abstract class RetryHttpInitializerOptions {
 
+  public static final boolean DEFAULT_IS_ENABLED = true;
   public static final String DEFAULT_DEFAULT_USER_AGENT = null;
   public static final ImmutableMap<String, String> DEFAULT_HTTP_HEADERS = ImmutableMap.of();
   public static final Duration DEFAULT_CONNECT_TIMEOUT = Duration.ofSeconds(20);
@@ -33,6 +34,7 @@ public abstract class RetryHttpInitializerOptions {
 
   public static Builder builder() {
     return new AutoValue_RetryHttpInitializerOptions.Builder()
+        .setIsEnabled(DEFAULT_IS_ENABLED)
         .setDefaultUserAgent(DEFAULT_DEFAULT_USER_AGENT)
         .setHttpHeaders(DEFAULT_HTTP_HEADERS)
         .setConnectTimeout(DEFAULT_CONNECT_TIMEOUT)
@@ -41,6 +43,9 @@ public abstract class RetryHttpInitializerOptions {
   }
 
   public abstract Builder toBuilder();
+
+  /** Whether the RetryHttpInitializer is enabled or not. */
+  public abstract boolean getIsEnabled();
 
   /**
    * A String to set as the user-agent when initializing an HTTP request if it doesn't already have
@@ -67,6 +72,8 @@ public abstract class RetryHttpInitializerOptions {
   /** Builder for {@link RetryHttpInitializerOptions} */
   @AutoValue.Builder
   public abstract static class Builder {
+
+    public abstract Builder setIsEnabled(boolean isEnabled);
 
     public abstract Builder setDefaultUserAgent(String userAgent);
 

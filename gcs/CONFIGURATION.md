@@ -152,6 +152,19 @@ provider.
 
     The implementation of the AccessTokenProvider interface used for GCS
     Connector.
+    
+*   `fs.gs.should.authenticate.per.request` (default: `false`)
+
+    Whether to generate a new access token for each GCS request.
+    Note: When setting this to true, you have to have a AccessTokenProvider 
+    implementation provided.
+    Note2: Using this flag should accompany disabling `fs.gs.enable.http.retry.initializer`.
+    
+*   `fs.gs.enable.http.retry.initializer` (default: `true`)
+
+    Whether to enable HTTP Retry mechanism.
+    Note: When this flag is set to false, `fs.gs.should.authenticate.per.request`
+    should be set along with an AccessTokenProvider implementation.
 
 *   `fs.gs.auth.service.account.enable` (default: `true`)
 

@@ -45,6 +45,7 @@ import com.google.common.flogger.GoogleLogger;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import javax.annotation.Nullable;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.permission.FsPermission;
 
@@ -236,6 +237,10 @@ public class GoogleHadoopFileSystemConfiguration {
   public static final HadoopConfigurationProperty<Integer> GCS_HTTP_READ_TIMEOUT =
       new HadoopConfigurationProperty<>("fs.gs.http.read-timeout", 20 * 1000);
 
+  /** Whether to enable low level HTTP retry                                                                                                                                                                                                                                                                                                                                                               */
+  public static final HadoopConfigurationProperty<Boolean> IS_HTTP_RETRY_INITIALIZER_ENABLED =
+      new HadoopConfigurationProperty<>("fs.gs.enable.http.retry.initializer", true);
+
   /** Configuration key for adding a suffix to the GHFS application name sent to GCS. */
   public static final HadoopConfigurationProperty<String> GCS_APPLICATION_NAME_SUFFIX =
       new HadoopConfigurationProperty<>("fs.gs.application.name.suffix", "");
@@ -413,6 +418,10 @@ public class GoogleHadoopFileSystemConfiguration {
       GCS_AUTHORIZATION_HANDLER_IMPL =
           new HadoopConfigurationProperty<>("fs.gs.authorization.handler.impl");
 
+  /** Configuration for whether to generate a new access token per GCS request. */
+  public static final HadoopConfigurationProperty<Boolean> GCS_SHOULD_AUTHENTICATE_PER_REQUEST =
+      new HadoopConfigurationProperty<>("fs.gs.should.authenticate.per.request", false);
+
   /** Configuration prefix for custom authorization handler properties. */
   public static final HadoopConfigurationProperty<Map<String, String>>
       GCS_AUTHORIZATION_HANDLER_PROPERTIES_PREFIX =
@@ -464,6 +473,7 @@ public class GoogleHadoopFileSystemConfiguration {
         .setHttpRequestConnectTimeout(GCS_HTTP_CONNECT_TIMEOUT.get(config, config::getInt))
         .setHttpRequestReadTimeout(GCS_HTTP_READ_TIMEOUT.get(config, config::getInt))
         .setAppName(getApplicationName(config))
+        .setIsRetryHttpInitializerEnabled(IS_HTTP_RETRY_INITIALIZER_ENABLED.get(config, config::getBoolean))
         .setMaxWaitMillisForEmptyObjectCreation(
             GCS_MAX_WAIT_MILLIS_EMPTY_OBJECT_CREATE.get(config, config::getInt))
         .setReadChannelOptions(getReadChannelOptions(config))
@@ -479,7 +489,11 @@ public class GoogleHadoopFileSystemConfiguration {
             GCS_AUTHORIZATION_HANDLER_IMPL.get(
                 config, (k, d) -> config.getClass(k, d, AuthorizationHandler.class)))
         .setAuthorizationHandlerProperties(
-            GCS_AUTHORIZATION_HANDLER_PROPERTIES_PREFIX.getPropsWithPrefix(config));
+            GCS_AUTHORIZATION_HANDLER_PROPERTIES_PREFIX.getPropsWithPrefix(config))
+        .setAccessTokenProvider(HadoopCredentialConfiguration.getAccessTokenProviderImplClass(
+            config, GCS_CONFIG_PREFIX))
+        .setShouldAuthenticatePerRequest(
+            GCS_SHOULD_AUTHENTICATE_PER_REQUEST.get(config, config::getBoolean));
   }
 
   private static PerformanceCachingGoogleCloudStorageOptions getPerformanceCachingOptions(

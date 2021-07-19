@@ -21,6 +21,7 @@ import com.google.api.services.storage.Storage;
 import com.google.auto.value.AutoValue;
 import com.google.cloud.hadoop.gcsio.authorization.AuthorizationHandler;
 import com.google.cloud.hadoop.gcsio.cooplock.CooperativeLockingOptions;
+import com.google.cloud.hadoop.util.AccessTokenProvider;
 import com.google.cloud.hadoop.util.AsyncWriteChannelOptions;
 import com.google.cloud.hadoop.util.HttpTransportFactory;
 import com.google.cloud.hadoop.util.RedactedString;
@@ -87,6 +88,13 @@ public abstract class GoogleCloudStorageOptions {
   public static final Class<? extends AuthorizationHandler>
       AUTHORIZATION_HANDLER_IMPL_CLASS_DEFAULT = null;
 
+  /** Default setting for generating new access token per request */
+  public static boolean SHOULD_AUTHENTICATE_PER_REQUEST = false;
+
+  /** Default setting for access token provider. */
+  public static final Class<? extends AccessTokenProvider>
+      ACCESS_TOKEN_PROVIDER_CLASS_DEFAULT = null;
+
   /** Default properties for authorization handler. */
   public static final Map<String, String> AUTHORIZATION_HANDLER_PROPERTIES_DEFAULT =
       ImmutableMap.of();
@@ -116,6 +124,9 @@ public abstract class GoogleCloudStorageOptions {
         .setCooperativeLockingOptions(CooperativeLockingOptions.DEFAULT)
         .setHttpRequestHeaders(HTTP_REQUEST_HEADERS_DEFAULT)
         .setAuthorizationHandlerImplClass(AUTHORIZATION_HANDLER_IMPL_CLASS_DEFAULT)
+        .setShouldAuthenticatePerRequest(SHOULD_AUTHENTICATE_PER_REQUEST)
+        .setIsRetryHttpInitializerEnabled(RetryHttpInitializerOptions.DEFAULT_IS_ENABLED)
+        .setAccessTokenProvider(ACCESS_TOKEN_PROVIDER_CLASS_DEFAULT)
         .setAuthorizationHandlerProperties(AUTHORIZATION_HANDLER_PROPERTIES_DEFAULT);
   }
 
@@ -131,6 +142,8 @@ public abstract class GoogleCloudStorageOptions {
 
   @Nullable
   public abstract String getProjectId();
+
+  public abstract boolean getIsRetryHttpInitializerEnabled();
 
   @Nullable
   public abstract String getAppName();
@@ -185,8 +198,19 @@ public abstract class GoogleCloudStorageOptions {
   @Nullable
   public abstract RedactedString getEncryptionKeyHash();
 
+  @Nullable
+  public abstract Class<? extends AuthorizationHandler> getAuthorizationHandlerImplClass();
+
+  public abstract boolean getShouldAuthenticatePerRequest();
+
+  @Nullable
+  public abstract Class<? extends AccessTokenProvider> getAccessTokenProvider();
+
+  public abstract Map<String, String> getAuthorizationHandlerProperties();
+
   public RetryHttpInitializerOptions toRetryHttpInitializerOptions() {
     return RetryHttpInitializerOptions.builder()
+        .setIsEnabled(getIsRetryHttpInitializerEnabled())
         .setDefaultUserAgent(getAppName())
         .setHttpHeaders(getHttpRequestHeaders())
         .setMaxRequestRetries(getMaxHttpRequestRetries())
@@ -195,13 +219,13 @@ public abstract class GoogleCloudStorageOptions {
         .build();
   }
 
-  @Nullable
-  public abstract Class<? extends AuthorizationHandler> getAuthorizationHandlerImplClass();
-
-  public abstract Map<String, String> getAuthorizationHandlerProperties();
-
   public void throwIfNotValid() {
     checkArgument(!isNullOrEmpty(getAppName()), "appName must not be null or empty");
+    checkArgument(!getShouldAuthenticatePerRequest() || getAccessTokenProvider() != null,
+        "accessTokenProvider should be set when shouldAuthenticatePerRequest is used");
+    checkArgument(getIsRetryHttpInitializerEnabled()
+        || (getShouldAuthenticatePerRequest() && getAccessTokenProvider() != null),
+        "isRetryHttpInitializer should be true when shouldAuthenticatePerRequest is false");
   }
 
   /** Mutable builder for the {@link GoogleCloudStorageOptions} class. */
@@ -217,6 +241,8 @@ public abstract class GoogleCloudStorageOptions {
     public abstract Builder setStorageServicePath(String servicePath);
 
     public abstract Builder setProjectId(String projectId);
+
+    public abstract Builder setIsRetryHttpInitializerEnabled(boolean isRetryHttpInitializerEnabled);
 
     public abstract Builder setAppName(String appName);
 
@@ -269,6 +295,11 @@ public abstract class GoogleCloudStorageOptions {
 
     public abstract Builder setAuthorizationHandlerImplClass(
         Class<? extends AuthorizationHandler> authorizationHandlerImpl);
+
+    public abstract Builder setShouldAuthenticatePerRequest(boolean shouldAuthenticatePerRequest);
+
+    public abstract Builder setAccessTokenProvider(
+        Class<? extends AccessTokenProvider> accessTokeProviderImpl);
 
     public abstract Builder setAuthorizationHandlerProperties(Map<String, String> properties);
 

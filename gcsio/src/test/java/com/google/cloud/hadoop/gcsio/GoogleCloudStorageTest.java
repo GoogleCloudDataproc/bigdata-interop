@@ -36,6 +36,7 @@ import static com.google.cloud.hadoop.gcsio.TrackingHttpRequestInitializer.listR
 import static com.google.cloud.hadoop.gcsio.TrackingHttpRequestInitializer.resumableUploadChunkRequestString;
 import static com.google.cloud.hadoop.gcsio.TrackingHttpRequestInitializer.resumableUploadRequestString;
 import static com.google.cloud.hadoop.gcsio.TrackingHttpRequestInitializer.uploadRequestString;
+import static com.google.cloud.hadoop.gcsio.integration.GoogleCloudStorageTestHelper.getCredential;
 import static com.google.cloud.hadoop.util.testing.MockHttpTransportHelper.dataResponse;
 import static com.google.cloud.hadoop.util.testing.MockHttpTransportHelper.emptyResponse;
 import static com.google.cloud.hadoop.util.testing.MockHttpTransportHelper.inputStreamResponse;
@@ -45,6 +46,8 @@ import static com.google.cloud.hadoop.util.testing.MockHttpTransportHelper.mockB
 import static com.google.cloud.hadoop.util.testing.MockHttpTransportHelper.mockTransport;
 import static com.google.common.net.HttpHeaders.CONTENT_LENGTH;
 import static com.google.common.truth.Truth.assertThat;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThrows;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.doThrow;
@@ -64,6 +67,7 @@ import com.google.api.client.util.DateTime;
 import com.google.api.client.util.NanoClock;
 import com.google.api.client.util.Sleeper;
 import com.google.api.services.storage.Storage;
+import com.google.api.services.storage.Storage.Objects.Get;
 import com.google.api.services.storage.model.Bucket;
 import com.google.api.services.storage.model.Buckets;
 import com.google.api.services.storage.model.Objects;
@@ -71,6 +75,7 @@ import com.google.api.services.storage.model.StorageObject;
 import com.google.cloud.hadoop.gcsio.GoogleCloudStorage.ListPage;
 import com.google.cloud.hadoop.gcsio.authorization.FakeAuthorizationHandler;
 import com.google.cloud.hadoop.gcsio.authorization.StorageRequestAuthorizer;
+import com.google.cloud.hadoop.util.AccessTokenProvider;
 import com.google.cloud.hadoop.util.ApiErrorExtractor;
 import com.google.cloud.hadoop.util.AsyncWriteChannelOptions;
 import com.google.cloud.hadoop.util.RetryHttpInitializer;
@@ -105,6 +110,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.zip.GZIPOutputStream;
 import javax.net.ssl.SSLException;
+import org.apache.hadoop.conf.Configuration;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -3387,6 +3393,87 @@ public class GoogleCloudStorageTest {
     assertThat(authorizer).isNotNull();
   }
 
+  @Test(expected = RuntimeException.class)
+  public void constructor_withInvalidAccessTokenProviderName_throwsRuntimeException()
+      throws IOException {
+
+    class FakeAccessTokenProvider implements AccessTokenProvider {
+
+      public FakeAccessTokenProvider() {
+        throw new UnsupportedOperationException("Exception thrown for testing");
+      }
+
+      @Override
+      public AccessToken getAccessToken() {
+        return null;
+      }
+
+      @Override
+      public void refresh() throws IOException {
+      }
+
+
+      @Override
+      public void setConf(Configuration configuration) {
+      }
+
+      @Override
+      public Configuration getConf() {
+        return null;
+      }
+    }
+
+    MockHttpTransport transport = mockTransport(jsonDataResponse(newBucket(BUCKET_NAME)));
+
+    GoogleCloudStorageOptions gcsOptions = GCS_OPTIONS.toBuilder()
+        .setShouldAuthenticatePerRequest(false)
+        .setAccessTokenProvider(FakeAccessTokenProvider.class)
+        .build();
+
+    // This should throw an exception.
+    mockedGcs(gcsOptions, transport);
+  }
+
+  @Test
+  public void initializeRequest_withAccessTokenProviderNotUsingNewTokenPerRequest()
+      throws IOException {
+
+    MockHttpTransport transport = mockTransport(jsonDataResponse(newBucket(BUCKET_NAME)));
+
+    GoogleCloudStorageOptions gcsOptions = GCS_OPTIONS.toBuilder()
+        .setShouldAuthenticatePerRequest(false)
+        .setAccessTokenProvider(FaKeAccessTokenProviderWithCounter.class)
+        .build();
+
+    GoogleCloudStorageImpl gcs = (GoogleCloudStorageImpl)mockedGcs(gcsOptions, transport);
+
+    Get testGetRequest = gcs.storage.objects().get(BUCKET_NAME, OBJECT_NAME);
+    gcs.initializeRequest(testGetRequest, BUCKET_NAME);
+
+    assertEquals(0, FaKeAccessTokenProviderWithCounter.getCallsCount());
+    assertNull(testGetRequest.getOauthToken());
+  }
+
+  @Test
+  public void initializeRequest_withAccessTokenProviderUsingNewTokenPerRequest()
+      throws IOException {
+
+    MockHttpTransport transport = mockTransport(jsonDataResponse(newBucket(BUCKET_NAME)));
+
+    GoogleCloudStorageOptions gcsOptions = GCS_OPTIONS.toBuilder()
+        .setShouldAuthenticatePerRequest(true)
+        .setAccessTokenProvider(FaKeAccessTokenProviderWithCounter.class)
+        .build();
+
+    GoogleCloudStorageImpl gcs = (GoogleCloudStorageImpl)mockedGcs(gcsOptions, transport);
+
+    Get testGetRequest = gcs.storage.objects().get(BUCKET_NAME, OBJECT_NAME);
+    gcs.initializeRequest(testGetRequest, BUCKET_NAME);
+
+    assertEquals(1, FaKeAccessTokenProviderWithCounter.getCallsCount());
+    assertEquals("FakeAccessToken", testGetRequest.getOauthToken());
+  }
+
   private GoogleCloudStorage mockedGcs(HttpTransport transport) {
     return mockedGcs(GCS_OPTIONS, transport);
   }
@@ -3455,5 +3542,34 @@ public class GoogleCloudStorageTest {
         return data[position++] & 0xff;
       }
     };
+  }
+}
+
+
+class FaKeAccessTokenProviderWithCounter implements AccessTokenProvider {
+  private static int callsCount = 0;
+  public FaKeAccessTokenProviderWithCounter() { }
+
+  public static int getCallsCount() {
+    return callsCount;
+  }
+
+  @Override
+  public AccessToken getAccessToken() {
+    this.callsCount++;
+    return new AccessToken("FakeAccessToken", 1_000L);
+  }
+
+  @Override
+  public void refresh() throws IOException {
+  }
+
+  @Override
+  public void setConf(Configuration configuration) {
+  }
+
+  @Override
+  public Configuration getConf() {
+    return null;
   }
 }
